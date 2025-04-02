@@ -1,0 +1,313 @@
+import asyncio
+import json
+import logging
+import os
+from functools import partial
+from textwrap import dedent
+from urllib.parse import quote
+
+from packaging.version import Version as V
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+from tornado.httputil import url_concat
+from tornado.ioloop import IOLoop, PeriodicCallback
+from tornado.log import LogFormatter
+from traitlets import Bool, Int, Unicode, default
+from traitlets.config import Application
+
+import subprocess
+
+
+__version__ = "0.0.1.dev"
+
+STATE_FILTER_MIN_VERSION = V("1.3.0")
+
+async def sync_users_to_calgroups(
+    url,
+    api_token,
+    logger,
+    calgroup_base_url,
+    calgroup_credentials,
+    concurrency=10,
+    api_page_size=0,
+):
+    
+    defaults = {
+        # GET /users may be slow if there are thousands of users and we
+        # don't do any server side filtering so default request timeouts
+        # to 60 seconds rather than tornado's 20 second default.
+        "request_timeout": int(os.environ.get("JUPYTERHUB_REQUEST_TIMEOUT") or 60)
+    }
+
+
+    AsyncHTTPClient.configure(None, defaults=defaults)
+    client = AsyncHTTPClient()
+
+    if concurrency:
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def fetch(req):
+            """client.fetch wrapped in a semaphore to limit concurrency"""
+            await semaphore.acquire()
+            try:
+                return await client.fetch(req)
+            finally:
+                semaphore.release()
+
+    else:
+        fetch = client.fetch
+
+    async def fetch_paginated(req):
+        """Make a paginated API request
+
+        async generator, yields all items from a list endpoint
+        """
+        req.headers["Accept"] = "application/jupyterhub-pagination+json"
+        url = req.url
+        resp_future = asyncio.ensure_future(fetch(req))
+        page_no = 1
+        item_count = 0
+        while resp_future is not None:
+            response = await resp_future
+            resp_future = None
+            resp_model = json.loads(response.body.decode("utf8", "replace"))
+
+            if isinstance(resp_model, list):
+                # handle pre-2.0 response, no pagination
+                items = resp_model
+            else:
+                # paginated response
+                items = resp_model["items"]
+
+                next_info = resp_model["_pagination"]["next"]
+                if next_info:
+                    page_no += 1
+                    logger.info(f"Fetching page {page_no} {next_info['url']}")
+                    # submit next request
+                    req.url = next_info["url"]
+                    resp_future = asyncio.ensure_future(fetch(req))
+
+            for item in items:
+                item_count += 1
+                yield item
+
+        logger.debug(f"Fetched {item_count} items from {url} in {page_no} pages")
+
+    # Starting with jupyterhub 1.3.0 the users can be filtered in the server
+    # using the `state` filter parameter. "ready" means all users who have any
+    # ready servers (running, not pending).
+    auth_header = {"Authorization": f"token {api_token}"}
+
+
+    async def handle_user(users_to_process):
+        """
+        JUPYTERHUB_API_URL 
+        
+        """
+        namespace = url.replace("https://", "").split('.')[0] # datahub
+    
+        file_path = 'users.txt'
+        
+        if 'staging' not in namespace:
+            group_base = "edu:berkeley:app:datahub:"
+            if namespace == "datahub":
+                group_name = group_base + "datahub-users"
+            else:
+                group_name = group_base + "datahub-" + namespace + "-users"
+
+            with open(file_path, "a") as file:
+                for user in users_to_process:
+                    user_is_admin = user["admin"]
+                    if not user_is_admin:
+                        user_name = user.get("name", "") 
+                        if "@berkeley.edu" not in user_name:
+                            user_name = user_name + "@berkeley.edu"
+                        file.write(f"{user_name}\n")  
+            try:
+                command = [
+                    "grouper", "-B", calgroup_base_url, "-C", calgroup_credentials, 
+                    "add", "-g", group_name, "-i", file_path
+                ]
+                subprocess.run(command, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.debug(f"An error occurred while running the command: {e}")
+
+
+    params = {}
+    if api_page_size:
+        params["limit"] = str(api_page_size)
+
+    users_url = f"{url}/users"
+    req = HTTPRequest(
+        url=url_concat(users_url, params),
+        headers=auth_header,
+    )
+
+    users_to_process = []
+    async for user in fetch_paginated(req):
+        users_to_process.append(user)
+    
+    await handle_user(users_to_process)
+   
+
+
+class CalgroupBuilder(Application):
+
+    api_page_size = Int(
+        0,
+        help=dedent(
+            """
+            Number of users to request per page,
+            when using JupyterHub 2.0's paginated user list API.
+            Default: user the server-side default configured page size.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    concurrency = Int(
+        10,
+        help=dedent(
+            """
+            Limit the number of concurrent requests made to the Hub.
+
+            Deleting a lot of users at the same time can slow down the Hub,
+            so limit the number of API requests we have outstanding at any given time.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+
+    sync_every = Int(
+        0,
+        help=dedent(
+            """
+            The interval (in seconds) for checking for idle servers to cull.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    @default("sync_every")
+    def _default_sync_every(self):
+        return self.timeout * 60
+
+
+    _log_formatter_cls = LogFormatter
+
+    @default("log_level")
+    def _log_level_default(self):
+        return logging.INFO
+
+    @default("log_datefmt")
+    def _log_datefmt_default(self):
+        """Exclude date from default date format"""
+        return "%Y-%m-%d %H:%M:%S"
+
+    @default("log_format")
+    def _log_format_default(self):
+        """override default log format to include time"""
+        return "%(color)s[%(levelname)1.1s %(asctime)s.%(msecs).03d %(name)s %(module)s:%(lineno)d]%(end_color)s %(message)s"
+
+
+    timeout = Int(
+        600,
+        help=dedent(
+            """
+            The idle timeout (in seconds).
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    url = Unicode(
+        os.environ.get("JUPYTERHUB_API_URL"),
+        allow_none=True,
+        help=dedent(
+            """
+            The JupyterHub API URL.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    calgroup_base_url = Unicode(
+        os.environ.get("Calgroup_Base_URL"),
+        allow_none=False,
+        help=dedent(
+            """
+            Calgroup base URL.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    calgroup_credentials = Unicode(
+        os.environ.get("Calgroup_credentials"),
+        allow_none=False,
+        help=dedent(
+            """
+            Calgroup credentials.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    aliases = {
+        "api-page-size": "CalgroupBuilder.api_page_size",
+        "concurrency": "CalgroupBuilder.concurrency",
+        "cull-every": "CalgroupBuilder.cull_every",
+        "timeout": "CalgroupBuilder.timeout",
+        "url": "CalgroupBuilder.url",
+        "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
+        "calgroup_credentials": "CalgroupBuilder.calgroup_credentials",   
+    }
+
+
+    def start(self):
+        api_token = os.environ["JUPYTERHUB_API_TOKEN"]
+
+        try:
+            AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
+        except ImportError as e:
+            self.log.warning(
+                f"Could not load pycurl: {e}\n"
+                "pycurl is recommended if you have a large number of users."
+            )
+
+        loop = IOLoop.current()
+        sync_calgroups = partial(
+            sync_users_to_calgroups,
+            url=self.url,
+            api_token=api_token,
+            logger=self.log,
+            concurrency=self.concurrency,
+            api_page_size=self.api_page_size,
+            calgroup_base_url = self.calgroup_base_url,
+            calgroup_credentials = self.calgroup_credentials,
+        )
+        # schedule first sync immediately
+        # because PeriodicCallback doesn't start until the end of the first interval
+        loop.add_callback(sync_calgroups)
+        # schedule periodic sync
+        pc = PeriodicCallback(sync_calgroups, 1e3 * self.sync_every)
+        pc.start()
+        try:
+            loop.start()
+        except KeyboardInterrupt:
+            pass
+
+
+def main():
+    CalgroupBuilder.launch_instance()
+
+
+if __name__ == "__main__":
+    main()
