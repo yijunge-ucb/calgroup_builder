@@ -21,6 +21,7 @@ __version__ = "0.0.1.dev"
 
 STATE_FILTER_MIN_VERSION = V("1.3.0")
 
+
 async def sync_users_to_calgroups(
     url,
     api_token,
@@ -30,14 +31,13 @@ async def sync_users_to_calgroups(
     concurrency=10,
     api_page_size=0,
 ):
-    
+
     defaults = {
         # GET /users may be slow if there are thousands of users and we
         # don't do any server side filtering so default request timeouts
         # to 60 seconds rather than tornado's 20 second default.
         "request_timeout": int(os.environ.get("JUPYTERHUB_REQUEST_TIMEOUT") or 60)
     }
-
 
     AsyncHTTPClient.configure(None, defaults=defaults)
     client = AsyncHTTPClient()
@@ -97,17 +97,16 @@ async def sync_users_to_calgroups(
     # ready servers (running, not pending).
     auth_header = {"Authorization": f"token {api_token}"}
 
-
     async def handle_user(users_to_process):
         """
-        JUPYTERHUB_API_URL 
-        
+        JUPYTERHUB_API_URL
+
         """
-        namespace = url.replace("https://", "").split('.')[0] # datahub
-    
-        file_path = 'users.txt'
-        
-        if 'staging' not in namespace:
+        namespace = url.replace("https://", "").split(".")[0]  # datahub
+
+        file_path = "users.txt"
+
+        if "staging" not in namespace:
             group_base = "edu:berkeley:app:datahub:"
             if namespace == "datahub":
                 group_name = group_base + "datahub-users"
@@ -118,19 +117,26 @@ async def sync_users_to_calgroups(
                 for user in users_to_process:
                     user_is_admin = user["admin"]
                     if not user_is_admin:
-                        user_name = user.get("name", "") 
+                        user_name = user.get("name", "")
                         if "@berkeley.edu" not in user_name:
                             user_name = user_name + "@berkeley.edu"
-                        file.write(f"{user_name}\n")  
+                        file.write(f"{user_name}\n")
             try:
                 command = [
-                    "grouper", "-B", calgroup_base_url, "-C", calgroup_credentials, 
-                    "add", "-g", group_name, "-i", file_path
+                    "grouper",
+                    "-B",
+                    calgroup_base_url,
+                    "-C",
+                    calgroup_credentials,
+                    "add",
+                    "-g",
+                    group_name,
+                    "-i",
+                    file_path,
                 ]
                 subprocess.run(command, check=True)
             except subprocess.CalledProcessError as e:
                 logger.debug(f"An error occurred while running the command: {e}")
-
 
     params = {}
     if api_page_size:
@@ -145,9 +151,8 @@ async def sync_users_to_calgroups(
     users_to_process = []
     async for user in fetch_paginated(req):
         users_to_process.append(user)
-    
+
     await handle_user(users_to_process)
-   
 
 
 class CalgroupBuilder(Application):
@@ -179,7 +184,6 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-
     sync_every = Int(
         0,
         help=dedent(
@@ -194,7 +198,6 @@ class CalgroupBuilder(Application):
     @default("sync_every")
     def _default_sync_every(self):
         return self.timeout * 60
-
 
     _log_formatter_cls = LogFormatter
 
@@ -211,7 +214,6 @@ class CalgroupBuilder(Application):
     def _log_format_default(self):
         """override default log format to include time"""
         return "%(color)s[%(levelname)1.1s %(asctime)s.%(msecs).03d %(name)s %(module)s:%(lineno)d]%(end_color)s %(message)s"
-
 
     timeout = Int(
         600,
@@ -267,9 +269,8 @@ class CalgroupBuilder(Application):
         "timeout": "CalgroupBuilder.timeout",
         "url": "CalgroupBuilder.url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
-        "calgroup_credentials": "CalgroupBuilder.calgroup_credentials",   
+        "calgroup_credentials": "CalgroupBuilder.calgroup_credentials",
     }
-
 
     def start(self):
         api_token = os.environ["JUPYTERHUB_API_TOKEN"]
@@ -290,8 +291,8 @@ class CalgroupBuilder(Application):
             logger=self.log,
             concurrency=self.concurrency,
             api_page_size=self.api_page_size,
-            calgroup_base_url = self.calgroup_base_url,
-            calgroup_credentials = self.calgroup_credentials,
+            calgroup_base_url=self.calgroup_base_url,
+            calgroup_credentials=self.calgroup_credentials,
         )
         # schedule first sync immediately
         # because PeriodicCallback doesn't start until the end of the first interval
