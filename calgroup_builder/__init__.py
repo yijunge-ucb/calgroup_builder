@@ -167,14 +167,7 @@ async def sync_users_to_calgroups(
     # using the `state` filter parameter. "ready" means all users who have any
     # ready servers (running, not pending).
     auth_header = {"Authorization": f"token {api_token}"}
-
-    def split_file_into_chunks(file_path, chunk_size):
-        with open(file_path, "r") as file:
-            lines = file.readlines()
-
-        # Break lines into chunks of 'chunk_size' (100 users at a time)
-        for i in range(0, len(lines), chunk_size):
-            yield lines[i : i + chunk_size]
+    
 
     async def handle_user(users_to_process):
         """
