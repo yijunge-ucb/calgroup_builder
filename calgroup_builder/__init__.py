@@ -269,7 +269,7 @@ class CalgroupBuilder(Application):
 
     @default("sync_every")
     def _default_sync_every(self):
-        return self.timeout * 1
+        return self.timeout * 6
 
     _log_formatter_cls = LogFormatter
 
