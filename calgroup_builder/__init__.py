@@ -15,11 +15,82 @@ from traitlets import Bool, Int, Unicode, default
 from traitlets.config import Application
 
 import subprocess
+import requests
+import pathlib
 
 
 __version__ = "0.0.1.dev"
 
 STATE_FILTER_MIN_VERSION = V("1.3.0")
+
+secret_keys = ["grouper_user", "grouper_pass"]
+
+
+def boolean_string(b):
+    return {True: "T", False: "F"}[b]
+
+
+def auth(user, password):
+    return requests.auth.HTTPBasicAuth(user, password)
+
+
+def read_json_data(filename, required_keys):
+    """Read and validate data from a json file."""
+    if not os.path.exists(filename):
+        raise Exception(f"No such file: {filename}")
+    data = json.loads(open(filename).read())
+    # check that we've got all of our required keys
+    if not has_all_keys(data, required_keys):
+        missing = set(required_keys) - set(data.keys())
+        s = f"Missing parameters in {filename}: {missing}"
+        raise Exception(s)
+    return data
+
+
+def read_credentials(filename, required_keys=secret_keys):
+    """Read credentials from {filename}. Returns a dict."""
+    return read_json_data(filename, required_keys)
+
+
+def has_all_keys(d, keys):
+    return all(k in d for k in keys)
+
+
+def add_members(base_uri, auth, group, replace_existing, members):
+    """Replace the members of the grouper group {group} with {users}."""
+    # https://github.com/Internet2/grouper/blob/master/grouper-ws/grouper-ws/doc/samples/addMember/WsSampleAddMemberRest_json.txt
+    print(f"Adding members to {group}")
+    data = {
+        "WsRestAddMemberRequest": {
+            "replaceAllExisting": boolean_string(replace_existing),
+            "subjectLookups": [],
+        }
+    }
+    for member in members:
+        if type(member) == int or member.isalpha():
+            # UUID
+            member_key = "subjectId"
+        else:
+            # e.g. group path id
+            member_key = "subjectIdentifier"
+        data["WsRestAddMemberRequest"]["subjectLookups"].append({member_key: member})
+    r = requests.put(
+        f"{base_uri}/groups/{group}/members",
+        data=json.dumps(data),
+        auth=auth,
+        headers={"Content-type": "text/x-json"},
+    )
+    out = r.json()
+    problem_key = "WsRestResultProblem"
+    try:
+        if problem_key in out:
+            print(f"{problem_key} in output")
+            meta = out[problem_key]["resultMetadata"]
+            raise Exception(meta)
+        results_key = "WsAddMemberResults"
+    except Exception as e:
+        print(f" error: {e}")
+    return out
 
 
 async def sync_users_to_calgroups(
@@ -97,14 +168,20 @@ async def sync_users_to_calgroups(
     # ready servers (running, not pending).
     auth_header = {"Authorization": f"token {api_token}"}
 
+    def split_file_into_chunks(file_path, chunk_size):
+        with open(file_path, "r") as file:
+            lines = file.readlines()
+
+        # Break lines into chunks of 'chunk_size' (100 users at a time)
+        for i in range(0, len(lines), chunk_size):
+            yield lines[i : i + chunk_size]
+
     async def handle_user(users_to_process):
         """
         JUPYTERHUB_API_URL
 
         """
         namespace = url.replace("https://", "").split(".")[0]  # datahub
-
-        file_path = "users.txt"
 
         if "staging" not in namespace:
             group_base = "edu:berkeley:app:datahub:"
@@ -113,28 +190,23 @@ async def sync_users_to_calgroups(
             else:
                 group_name = group_base + "datahub-" + namespace + "-users"
 
-            with open(file_path, "a") as file:
-                for user in users_to_process:
-                    user_is_admin = user["admin"]
-                    if not user_is_admin:
-                        user_name = user.get("name", "")
-                        if "@berkeley.edu" not in user_name:
-                            user_name = user_name + "@berkeley.edu"
-                        file.write(f"{user_name}\n")
+            members = []
+            for user in users_to_process:
+                user_is_admin = user["admin"]
+                if not user_is_admin:
+                    user_name = user.get("name", "")
+                    if "@berkeley.edu" not in user_name:
+                        user_name = user_name + "@berkeley.edu"
+                    members.append(user_name)
+
             try:
-                command = [
-                    "grouper",
-                    "-B",
-                    calgroup_base_url,
-                    "-C",
-                    calgroup_credentials,
-                    "add",
-                    "-g",
-                    group_name,
-                    "-i",
-                    file_path,
-                ]
-                subprocess.run(command, check=True)
+                credspath = pathlib.PosixPath(calgroup_credentials).expanduser()
+                credentials = read_credentials(credspath)
+                grouper_auth = auth(
+                    credentials["grouper_user"], credentials["grouper_pass"]
+                )
+                add_members(calgroup_base_url, grouper_auth, group_name, True, members)
+                print("Done adding members. ")
             except subprocess.CalledProcessError as e:
                 logger.debug(f"An error occurred while running the command: {e}")
 
@@ -197,7 +269,7 @@ class CalgroupBuilder(Application):
 
     @default("sync_every")
     def _default_sync_every(self):
-        return self.timeout * 60
+        return self.timeout * 1
 
     _log_formatter_cls = LogFormatter
 
