@@ -21,7 +21,8 @@ dependencies = [
     "tornado",
     "packaging",
     "traitlets",
-    "grouper @ git+https://github.com/ryanlovett/grouper-cli.git#egg=grouper-cli"
+    "pycurl",
+    "requests",
 ]
 
 # Add the version to the dynamic field

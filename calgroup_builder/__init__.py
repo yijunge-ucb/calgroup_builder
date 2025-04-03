@@ -17,6 +17,7 @@ from traitlets.config import Application
 import subprocess
 import requests
 import pathlib
+import re
 
 
 __version__ = "0.0.1.dev"
@@ -167,7 +168,7 @@ async def sync_users_to_calgroups(
     # using the `state` filter parameter. "ready" means all users who have any
     # ready servers (running, not pending).
     auth_header = {"Authorization": f"token {api_token}"}
-    
+
 
     async def handle_user(users_to_process):
         """
@@ -184,11 +185,14 @@ async def sync_users_to_calgroups(
                 group_name = group_base + "datahub-" + namespace + "-users"
 
             members = []
+            pattern = r"@.*\.edu$"
             for user in users_to_process:
                 user_is_admin = user["admin"]
                 if not user_is_admin:
                     user_name = user.get("name", "")
                     if "@berkeley.edu" not in user_name:
+                        if re.search(pattern, user_name): ## @*.edu but not @berkeley.edu
+                            continue
                         user_name = user_name + "@berkeley.edu"
                     members.append(user_name)
 
@@ -198,6 +202,7 @@ async def sync_users_to_calgroups(
                 grouper_auth = auth(
                     credentials["grouper_user"], credentials["grouper_pass"]
                 )
+                print(f"Finding {len(members)} members to add. ")
                 add_members(calgroup_base_url, grouper_auth, group_name, True, members)
                 print("Done adding members. ")
             except subprocess.CalledProcessError as e:
