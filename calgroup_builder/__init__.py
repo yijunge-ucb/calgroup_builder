@@ -35,28 +35,6 @@ def auth(user, password):
     return requests.auth.HTTPBasicAuth(user, password)
 
 
-def read_json_data(filename, required_keys):
-    """Read and validate data from a json file."""
-    if not os.path.exists(filename):
-        raise Exception(f"No such file: {filename}")
-    data = json.loads(open(filename).read())
-    # check that we've got all of our required keys
-    if not has_all_keys(data, required_keys):
-        missing = set(required_keys) - set(data.keys())
-        s = f"Missing parameters in {filename}: {missing}"
-        raise Exception(s)
-    return data
-
-
-def read_credentials(filename, required_keys=secret_keys):
-    """Read credentials from {filename}. Returns a dict."""
-    return read_json_data(filename, required_keys)
-
-
-def has_all_keys(d, keys):
-    return all(k in d for k in keys)
-
-
 def add_members(base_uri, auth, group, replace_existing, members):
     """Replace the members of the grouper group {group} with {users}."""
     # https://github.com/Internet2/grouper/blob/master/grouper-ws/grouper-ws/doc/samples/addMember/WsSampleAddMemberRest_json.txt
@@ -197,10 +175,11 @@ async def sync_users_to_calgroups(
                     members.append(user_name)
 
             try:
-                credspath = pathlib.PosixPath(calgroup_credentials).expanduser()
-                credentials = read_credentials(credspath)
+                grouper_user = os.environ.get("calgroup_user")
+                grouper_pass = os.environ.get("calgroup_pass")
+
                 grouper_auth = auth(
-                    credentials["grouper_user"], credentials["grouper_pass"]
+                    grouper_user, grouper_pass
                 )
                 print(f"Found {len(members)} members to add. ")
                 add_members(calgroup_base_url, grouper_auth, group_name, True, members)
