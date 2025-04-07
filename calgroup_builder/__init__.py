@@ -73,6 +73,7 @@ def add_members(base_uri, auth, group, replace_existing, members):
 
 
 async def sync_users_to_calgroups(
+    namespace,
     url,
     api_token,
     grouper_user,
@@ -154,7 +155,6 @@ async def sync_users_to_calgroups(
         JUPYTERHUB_API_URL
 
         """
-        namespace = url.replace("https://", "").split(".")[0]  # datahub
 
         if "staging" not in namespace:
             group_base = "edu:berkeley:app:datahub:"
@@ -179,15 +179,12 @@ async def sync_users_to_calgroups(
                 grouper_auth = auth(
                     grouper_user, grouper_pass
                 )
-                logger.info(f"Found {len(members)} members to add. ")
-                logger.info(f"calgroup_base_url inside handle user: {calgroup_base_url}")
-                logger.info(f"group user inside handle user: {grouper_user}")
-                logger.info(f"group pass inside handle user: {grouper_pass}")
-                logger.info(f"group name inside handle user: {group_name}")
-                logger.info(f"members inside handle user: {members}")
+                logger.info(f"Found {len(members)} members to add in namespace {namespace}. ")
+                logger.info(f"Group name: {group_name}")
+                logger.info(f"Members: {members}")
 
                 add_members(calgroup_base_url, grouper_auth, group_name, True, members)
-                print("Done adding members. ")
+                logger.info(f"Done adding members in namespace {namespace}. ")
             except subprocess.CalledProcessError as e:
                 logger.debug(f"An error occurred while running the command: {e}")
 
@@ -279,6 +276,18 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
+    namespace = Unicode(
+        os.environ.get("namespace"),
+        allow_none=False,
+        help=dedent(
+            """
+            The namespace of the deployment.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
     url = Unicode(
         os.environ.get("JUPYTERHUB_API_URL"),
         allow_none=True,
@@ -332,6 +341,7 @@ class CalgroupBuilder(Application):
         "concurrency": "CalgroupBuilder.concurrency",
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
+        "namespace": "CalgroupBuilder.namespace",
         "url": "CalgroupBuilder.url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
         "grouper_user": "CalgroupBuilder.grouper_user",
@@ -352,6 +362,7 @@ class CalgroupBuilder(Application):
         loop = IOLoop.current()
         sync_calgroups = partial(
             sync_users_to_calgroups,
+            namespace=self.namespace,
             url=self.url,
             api_token=api_token,
             grouper_user=self.grouper_user,
