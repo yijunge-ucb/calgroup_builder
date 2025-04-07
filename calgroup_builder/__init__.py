@@ -73,7 +73,6 @@ def add_members(base_uri, auth, group, replace_existing, members):
 
 
 async def sync_users_to_calgroups(
-    hub_name,
     url,
     api_token,
     grouper_user,
@@ -330,7 +329,6 @@ class CalgroupBuilder(Application):
         "concurrency": "CalgroupBuilder.concurrency",
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
-        "hub_name": "CalgroupBuilder.hub_name",
         "url": "CalgroupBuilder.url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
         "grouper_user": "CalgroupBuilder.grouper_user",
@@ -351,7 +349,6 @@ class CalgroupBuilder(Application):
         loop = IOLoop.current()
         sync_calgroups = partial(
             sync_users_to_calgroups,
-            hub_name=self.hub_name,
             url=self.url,
             api_token=api_token,
             grouper_user=self.grouper_user,
