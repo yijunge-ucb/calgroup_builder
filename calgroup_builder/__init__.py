@@ -179,7 +179,13 @@ async def sync_users_to_calgroups(
                 grouper_auth = auth(
                     grouper_user, grouper_pass
                 )
-                print(f"Found {len(members)} members to add. ")
+                logger.info(f"Found {len(members)} members to add. ")
+                logger.info(f"calgroup_base_url inside handle user: {calgroup_base_url}")
+                logger.info(f"group user inside handle user: {grouper_user}")
+                logger.info(f"group pass inside handle user: {grouper_pass}")
+                logger.info(f"group name inside handle user: {group_name}")
+                logger.info(f"members inside handle user: {members}")
+
                 add_members(calgroup_base_url, grouper_auth, group_name, True, members)
                 print("Done adding members. ")
             except subprocess.CalledProcessError as e:
@@ -285,6 +291,41 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
+    calgroup_base_url = Unicode(
+        os.environ.get("Calgroup_Base_URL"),
+        allow_none=False,
+        help=dedent(
+            """
+            The Calgroup Base URL.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    grouper_user = Unicode(
+        os.environ.get("grouper_user"),
+        allow_none=False,
+        help=dedent(
+            """
+            The grouper user.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    grouper_pass = Unicode(
+        os.environ.get("grouper_pass"),
+        allow_none=False,
+        help=dedent(
+            """
+            The grouper password.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
 
     aliases = {
         "api-page-size": "CalgroupBuilder.api_page_size",
@@ -292,17 +333,14 @@ class CalgroupBuilder(Application):
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
         "url": "CalgroupBuilder.url",
+        "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
+        "grouper_user": "CalgroupBuilder.grouper_user",
+        "grouper_pass": "CalgroupBuilder.grouper_pass",
     }
 
     def start(self):
         api_token = os.environ["JUPYTERHUB_API_TOKEN"]
-        grouper_user = os.getenv('calgroup_user')
-        grouper_pass = os.getenv('calgroup_pass')
-        calgroup_base_url = os.getenv('Calgroup_Base_URL')
-        print(f"api_token: {api_token}")
-        print(f"grouper_user: {grouper_user}")
-        print(f"grouper_pass: {grouper_pass}")
-        print(f"calgroup_base_url: {calgroup_base_url}")
+
         try:
             AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
         except ImportError as e:
@@ -316,9 +354,9 @@ class CalgroupBuilder(Application):
             sync_users_to_calgroups,
             url=self.url,
             api_token=api_token,
-            grouper_user=grouper_user,
-            grouper_pass=grouper_pass,
-            calgroup_base_url=calgroup_base_url,
+            grouper_user=self.grouper_user,
+            grouper_pass=self.grouper_pass,
+            calgroup_base_url=self.calgroup_base_url,
             logger=self.log,
             concurrency=self.concurrency,
             api_page_size=self.api_page_size,
