@@ -155,44 +155,45 @@ async def sync_users_to_calgroups(
         JUPYTERHUB_API_URL
 
         """
-
+        hub_name = url.replace("https://", "").split('.')
         
         group_base = "edu:berkeley:app:datahub:"
-        if hub_name == "datahub":
-            group_name = group_base + "datahub-users"
-        else:
-            group_name = group_base + "datahub-" + hub_name + "-users"
+        if "staging" not in hub_name:
+            if hub_name == "datahub":
+                group_name = group_base + "datahub-users"
+            else:
+                group_name = group_base + "datahub-" + hub_name + "-users"
 
-        members = []
-        for user in users_to_process:
-            user_is_admin = user["admin"]
-            if not user_is_admin:
-                user_name = user.get("name", "")
-                if "@berkeley.edu" not in user_name:
-                    if "@" in user_name: ## @*.com @*.edu but not @berkeley.edu
-                        print(f"Non-Berkeley Email: {user_name}")
-                        continue
-                    user_name = user_name + "@berkeley.edu"
-                members.append(user_name)
+            members = []
+            for user in users_to_process:
+                user_is_admin = user["admin"]
+                if not user_is_admin:
+                    user_name = user.get("name", "")
+                    if "@berkeley.edu" not in user_name:
+                        if "@" in user_name: ## @*.com @*.edu but not @berkeley.edu
+                            print(f"Non-Berkeley Email: {user_name}")
+                            continue
+                        user_name = user_name + "@berkeley.edu"
+                    members.append(user_name)
 
-        try:
-            grouper_auth = auth(
-                grouper_user, grouper_pass
-            )
-            logger.info(f"Found {len(members)} members to add in the {hub_name} hub. ")
-            logger.info(f"Group name: {group_name}")
-            logger.info(f"Members: {members}")
+            try:
+                grouper_auth = auth(
+                    grouper_user, grouper_pass
+                )
+                logger.info(f"Found {len(members)} members to add in the {hub_name} hub. ")
+                logger.info(f"Group name: {group_name}")
+                logger.info(f"Members: {members}")
 
-            add_members(calgroup_base_url, grouper_auth, group_name, True, members)
-            logger.info(f"Done adding members in the {hub_name} hub. ")
-        except subprocess.CalledProcessError as e:
-            logger.debug(f"An error occurred while running the command: {e}")
+                add_members(calgroup_base_url, grouper_auth, group_name, True, members)
+                logger.info(f"Done adding members in the {hub_name} hub. ")
+            except subprocess.CalledProcessError as e:
+                logger.debug(f"An error occurred while running the command: {e}")
 
     params = {}
     if api_page_size:
         params["limit"] = str(api_page_size)
 
-    users_url = f"{url}/users"
+    users_url = f"{url}/hub/api/users"
     req = HTTPRequest(
         url=url_concat(users_url, params),
         headers=auth_header,
@@ -276,23 +277,12 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    hub_name = Unicode(
-        "datahub",  
-        allow_none=False,
-        help=dedent(
-            """
-            Name for the target hub.
-            """
-        ).strip(),
-    ).tag(config=True)
-
-
     url = Unicode(
-        os.environ.get("JUPYTERHUB_API_URL"),
+        os.environ.get("JUPYTERHUB_BASE_URL"),
         allow_none=True,
         help=dedent(
             """
-            The JupyterHub API URL.
+            The JupyterHub BASE URL.
             """
         ).strip(),
     ).tag(
