@@ -76,9 +76,6 @@ async def sync_users_to_calgroups(
     url,
     api_token,
     logger,
-    calgroup_base_url,
-    grouper_user,
-    grouper_pass,
     concurrency=10,
     api_page_size=0,
 ):
@@ -176,6 +173,9 @@ async def sync_users_to_calgroups(
                     members.append(user_name)
 
             try:
+                grouper_user = os.getenv('calgroup_user')
+                grouper_pass = os.getenv('calgroup_pass')
+                calgroup_base_url = os.getenv('Calgroup_Base_URL')
                 grouper_auth = auth(
                     grouper_user, grouper_pass
                 )
@@ -285,41 +285,6 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    calgroup_base_url = Unicode(
-        os.environ.get("Calgroup_Base_URL"),
-        allow_none=False,
-        help=dedent(
-            """
-            Calgroup base URL.
-            """
-        ).strip(),
-    ).tag(
-        config=True,
-    )
-
-    grouper_user = Unicode(
-        os.environ.get("grouper_user"),
-        allow_none=False,
-        help=dedent(
-            """
-            Calgroup cred user.
-            """
-        ).strip(),
-    ).tag(
-        config=True,
-    )
-
-    grouper_pass = Unicode(
-        os.environ.get("grouper_pass"),
-        allow_none=False,
-        help=dedent(
-            """
-            Calgroup cred password.
-            """
-        ).strip(),
-    ).tag(
-        config=True,
-    )
 
     aliases = {
         "api-page-size": "CalgroupBuilder.api_page_size",
@@ -327,9 +292,6 @@ class CalgroupBuilder(Application):
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
         "url": "CalgroupBuilder.url",
-        "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
-        "grouper_user": "CalgroupBuilder.grouper_user",
-        "grouper_pass": "CalgroupBuilder.grouper_pass",
     }
 
     def start(self):
@@ -351,9 +313,6 @@ class CalgroupBuilder(Application):
             logger=self.log,
             concurrency=self.concurrency,
             api_page_size=self.api_page_size,
-            calgroup_base_url=self.calgroup_base_url,
-            grouper_user=self.grouper_user,
-            grouper_pass=self.grouper_pass,
         )
         # schedule first sync immediately
         # because PeriodicCallback doesn't start until the end of the first interval
