@@ -73,7 +73,6 @@ def add_members(base_uri, auth, group, replace_existing, members):
 
 
 async def sync_users_to_calgroups(
-    jupyterhub_base_url,
     jupyterhub_api_url,
     api_token,
     grouper_user,
@@ -151,9 +150,8 @@ async def sync_users_to_calgroups(
 
 
     async def handle_user(users_to_process):
-        hub_name = jupyterhub_base_url.replace("https://", "").split('.')
-        logger.info(f"Jupyterhub Base URL: {jupyterhub_base_url}")
-        
+        hub_name = os.getenv('POD_NAMESPACE')        
+        logger.info(f"Namespace is : {hub_name}. ")
         group_base = "edu:berkeley:app:datahub:"
         if "staging" not in hub_name:
             if hub_name == "datahub":
@@ -274,18 +272,6 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    jupyterhub_base_url = Unicode(
-        os.environ.get("JUPYTERHUB_BASE_URL"),
-        allow_none=True,
-        help=dedent(
-            """
-            The JupyterHub BASE URL.
-            """
-        ).strip(),
-    ).tag(
-        config=True,
-    )
-
     jupyterhub_api_url = Unicode(
         os.environ.get("JUPYTERHUB_API_URL"),
         allow_none=True,
@@ -339,7 +325,6 @@ class CalgroupBuilder(Application):
         "concurrency": "CalgroupBuilder.concurrency",
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
-        "jupyterhub_base_url": "CalgroupBuilder.jupyterhub_base_url",
         "jupyterhub_api_url": "CalgroupBuilder.jupyterhub_api_url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
         "grouper_user": "CalgroupBuilder.grouper_user",
@@ -360,7 +345,6 @@ class CalgroupBuilder(Application):
         loop = IOLoop.current()
         sync_calgroups = partial(
             sync_users_to_calgroups,
-            jupyterhub_base_url=self.jupyterhub_base_url,
             jupyterhub_api_url=self.jupyterhub_api_url,
             api_token=api_token,
             grouper_user=self.grouper_user,
