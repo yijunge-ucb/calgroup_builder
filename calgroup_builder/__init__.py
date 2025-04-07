@@ -77,7 +77,8 @@ async def sync_users_to_calgroups(
     api_token,
     logger,
     calgroup_base_url,
-    calgroup_credentials,
+    grouper_user,
+    grouper_pass,
     concurrency=10,
     api_page_size=0,
 ):
@@ -175,9 +176,6 @@ async def sync_users_to_calgroups(
                     members.append(user_name)
 
             try:
-                grouper_user = os.environ.get("calgroup_user")
-                grouper_pass = os.environ.get("calgroup_pass")
-
                 grouper_auth = auth(
                     grouper_user, grouper_pass
                 )
@@ -299,12 +297,24 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    calgroup_credentials = Unicode(
-        os.environ.get("Calgroup_credentials"),
+    grouper_user = Unicode(
+        os.environ.get("grouper_user"),
         allow_none=False,
         help=dedent(
             """
-            Calgroup credentials.
+            Calgroup cred user.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    grouper_pass = Unicode(
+        os.environ.get("grouper_pass"),
+        allow_none=False,
+        help=dedent(
+            """
+            Calgroup cred password.
             """
         ).strip(),
     ).tag(
@@ -318,7 +328,8 @@ class CalgroupBuilder(Application):
         "timeout": "CalgroupBuilder.timeout",
         "url": "CalgroupBuilder.url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
-        "calgroup_credentials": "CalgroupBuilder.calgroup_credentials",
+        "grouper_user": "CalgroupBuilder.grouper_user",
+        "grouper_pass": "CalgroupBuilder.grouper_pass",
     }
 
     def start(self):
@@ -341,7 +352,8 @@ class CalgroupBuilder(Application):
             concurrency=self.concurrency,
             api_page_size=self.api_page_size,
             calgroup_base_url=self.calgroup_base_url,
-            calgroup_credentials=self.calgroup_credentials,
+            grouper_user=self.grouper_user,
+            grouper_pass=self.grouper_pass,
         )
         # schedule first sync immediately
         # because PeriodicCallback doesn't start until the end of the first interval
