@@ -73,7 +73,8 @@ def add_members(base_uri, auth, group, replace_existing, members):
 
 
 async def sync_users_to_calgroups(
-    url,
+    jupyterhub_base_url,
+    jupyterhub_api_url,
     api_token,
     grouper_user,
     grouper_pass,
@@ -150,11 +151,8 @@ async def sync_users_to_calgroups(
 
 
     async def handle_user(users_to_process):
-        """
-        JUPYTERHUB_API_URL
-
-        """
-        hub_name = url.replace("https://", "").split('.')
+        hub_name = jupyterhub_base_url.replace("https://", "").split('.')
+        logger.info(f"Jupyterhub Base URL: {jupyterhub_base_url}")
         
         group_base = "edu:berkeley:app:datahub:"
         if "staging" not in hub_name:
@@ -192,7 +190,7 @@ async def sync_users_to_calgroups(
     if api_page_size:
         params["limit"] = str(api_page_size)
 
-    users_url = f"{url}/hub/api/users"
+    users_url = f"{jupyterhub_api_url}/users"
     req = HTTPRequest(
         url=url_concat(users_url, params),
         headers=auth_header,
@@ -276,12 +274,24 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    url = Unicode(
+    jupyterhub_base_url = Unicode(
         os.environ.get("JUPYTERHUB_BASE_URL"),
         allow_none=True,
         help=dedent(
             """
             The JupyterHub BASE URL.
+            """
+        ).strip(),
+    ).tag(
+        config=True,
+    )
+
+    jupyterhub_api_url = Unicode(
+        os.environ.get("JUPYTERHUB_API_URL"),
+        allow_none=True,
+        help=dedent(
+            """
+            The JupyterHub API URL.
             """
         ).strip(),
     ).tag(
@@ -329,7 +339,8 @@ class CalgroupBuilder(Application):
         "concurrency": "CalgroupBuilder.concurrency",
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
-        "url": "CalgroupBuilder.url",
+        "jupyterhub_base_url": "CalgroupBuilder.jupyterhub_base_url",
+        "jupyterhub_api_url": "CalgroupBuilder.jupyterhub_api_url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
         "grouper_user": "CalgroupBuilder.grouper_user",
         "grouper_pass": "CalgroupBuilder.grouper_pass",
@@ -349,7 +360,8 @@ class CalgroupBuilder(Application):
         loop = IOLoop.current()
         sync_calgroups = partial(
             sync_users_to_calgroups,
-            url=self.url,
+            jupyterhub_base_url=self.jupyterhub_base_url,
+            jupyterhub_api_url=self.jupyterhub_api_url,
             api_token=api_token,
             grouper_user=self.grouper_user,
             grouper_pass=self.grouper_pass,
