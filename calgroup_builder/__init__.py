@@ -75,6 +75,9 @@ def add_members(base_uri, auth, group, replace_existing, members):
 async def sync_users_to_calgroups(
     url,
     api_token,
+    grouper_user,
+    grouper_pass,
+    calgroup_base_url,
     logger,
     concurrency=10,
     api_page_size=0,
@@ -173,9 +176,6 @@ async def sync_users_to_calgroups(
                     members.append(user_name)
 
             try:
-                grouper_user = os.getenv('calgroup_user')
-                grouper_pass = os.getenv('calgroup_pass')
-                calgroup_base_url = os.getenv('Calgroup_Base_URL')
                 grouper_auth = auth(
                     grouper_user, grouper_pass
                 )
@@ -296,7 +296,13 @@ class CalgroupBuilder(Application):
 
     def start(self):
         api_token = os.environ["JUPYTERHUB_API_TOKEN"]
-
+        grouper_user = os.getenv('calgroup_user')
+        grouper_pass = os.getenv('calgroup_pass')
+        calgroup_base_url = os.getenv('Calgroup_Base_URL')
+        print(f"api_token: {api_token}")
+        print(f"grouper_user: {grouper_user}")
+        print(f"grouper_pass: {grouper_pass}")
+        print(f"calgroup_base_url: {calgroup_base_url}")
         try:
             AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
         except ImportError as e:
@@ -310,6 +316,9 @@ class CalgroupBuilder(Application):
             sync_users_to_calgroups,
             url=self.url,
             api_token=api_token,
+            grouper_user=grouper_user,
+            grouper_pass=grouper_pass,
+            calgroup_base_url=calgroup_base_url,
             logger=self.log,
             concurrency=self.concurrency,
             api_page_size=self.api_page_size,
