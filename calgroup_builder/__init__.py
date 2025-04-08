@@ -18,6 +18,7 @@ import subprocess
 import requests
 import pathlib
 import re
+import time
 
 
 __version__ = "0.0.1.dev"
@@ -73,7 +74,8 @@ def add_members(base_uri, auth, group, replace_existing, members):
 
 
 async def sync_users_to_calgroups(
-    jupyterhub_api_url,
+    hub_name,
+    url,
     api_token,
     grouper_user,
     grouper_pass,
@@ -150,45 +152,42 @@ async def sync_users_to_calgroups(
 
 
     async def handle_user(users_to_process):
-        hub_name = os.getenv('POD_NAMESPACE')        
-        logger.info(f"Namespace is : {hub_name}. ")
         group_base = "edu:berkeley:app:datahub:"
-        if "staging" not in hub_name:
-            if hub_name == "datahub":
-                group_name = group_base + "datahub-users"
-            else:
-                group_name = group_base + "datahub-" + hub_name + "-users"
+        if hub_name == "datahub":
+            group_name = group_base + "datahub-users"
+        else:
+            group_name = group_base + "datahub-" + hub_name + "-users"
 
-            members = []
-            for user in users_to_process:
-                user_is_admin = user["admin"]
-                if not user_is_admin:
-                    user_name = user.get("name", "")
-                    if "@berkeley.edu" not in user_name:
-                        if "@" in user_name: ## @*.com @*.edu but not @berkeley.edu
-                            print(f"Non-Berkeley Email: {user_name}")
-                            continue
-                        user_name = user_name + "@berkeley.edu"
-                    members.append(user_name)
+        members = []
+        for user in users_to_process:
+            user_is_admin = user["admin"]
+            if not user_is_admin:
+                user_name = user.get("name", "")
+                if "@berkeley.edu" not in user_name:
+                    if "@" in user_name: ## @*.com @*.edu but not @berkeley.edu
+                        print(f"Non-Berkeley Email: {user_name}")
+                        continue
+                    user_name = user_name + "@berkeley.edu"
+                members.append(user_name)
 
-            try:
-                grouper_auth = auth(
-                    grouper_user, grouper_pass
-                )
-                logger.info(f"Found {len(members)} members to add in the {hub_name} hub. ")
-                logger.info(f"Group name: {group_name}")
-                logger.info(f"Members: {members}")
+        try:
+            grouper_auth = auth(
+                grouper_user, grouper_pass
+            )
+            logger.info(f"Found {len(members)} members to add in the {hub_name} hub. ")
+            logger.info(f"Group name: {group_name}")
+            logger.info(f"Members: {members}")
 
-                add_members(calgroup_base_url, grouper_auth, group_name, True, members)
-                logger.info(f"Done adding members in the {hub_name} hub. ")
-            except subprocess.CalledProcessError as e:
-                logger.debug(f"An error occurred while running the command: {e}")
+            add_members(calgroup_base_url, grouper_auth, group_name, True, members)
+            logger.info(f"Done adding members in the {hub_name} hub. ")
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"An error occurred while running the command: {e}")
 
     params = {}
     if api_page_size:
         params["limit"] = str(api_page_size)
 
-    users_url = f"{jupyterhub_api_url}/users"
+    users_url = f"{url}/users"
     req = HTTPRequest(
         url=url_concat(users_url, params),
         headers=auth_header,
@@ -272,7 +271,18 @@ class CalgroupBuilder(Application):
         config=True,
     )
 
-    jupyterhub_api_url = Unicode(
+    hub_name = Unicode(
+        "datahub",  
+        allow_none=False,
+        help=dedent(
+            """
+            Name for the target hub.
+            """
+        ).strip(),
+    ).tag(config=True)
+
+
+    url = Unicode(
         os.environ.get("JUPYTERHUB_API_URL"),
         allow_none=True,
         help=dedent(
@@ -297,7 +307,7 @@ class CalgroupBuilder(Application):
     )
 
     grouper_user = Unicode(
-        os.environ.get("grouper_user"),
+        os.environ.get("calgroup_user"),
         allow_none=False,
         help=dedent(
             """
@@ -309,7 +319,7 @@ class CalgroupBuilder(Application):
     )
 
     grouper_pass = Unicode(
-        os.environ.get("grouper_pass"),
+        os.environ.get("calgroup_pass"),
         allow_none=False,
         help=dedent(
             """
@@ -325,7 +335,8 @@ class CalgroupBuilder(Application):
         "concurrency": "CalgroupBuilder.concurrency",
         "cull-every": "CalgroupBuilder.cull_every",
         "timeout": "CalgroupBuilder.timeout",
-        "jupyterhub_api_url": "CalgroupBuilder.jupyterhub_api_url",
+        "hub_name": "CalgroupBuilder.hub_name",
+        "url": "CalgroupBuilder.url",
         "calgroup_base_url": "CalgroupBuilder.calgroup_base_url",
         "grouper_user": "CalgroupBuilder.grouper_user",
         "grouper_pass": "CalgroupBuilder.grouper_pass",
@@ -333,6 +344,10 @@ class CalgroupBuilder(Application):
 
     def start(self):
         api_token = os.environ["JUPYTERHUB_API_TOKEN"]
+        self.log.info(f"api_token is {api_token}")
+        self.log.info(f"calgroup_base_url is {self.calgroup_base_url}")
+        self.log.info(f"grouper_user is {self.grouper_user}")
+        self.log.info(f"grouper_pass is {self.grouper_pass}")
 
         try:
             AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
@@ -345,7 +360,8 @@ class CalgroupBuilder(Application):
         loop = IOLoop.current()
         sync_calgroups = partial(
             sync_users_to_calgroups,
-            jupyterhub_api_url=self.jupyterhub_api_url,
+            hub_name=self.hub_name,
+            url=self.url,
             api_token=api_token,
             grouper_user=self.grouper_user,
             grouper_pass=self.grouper_pass,
